@@ -1,0 +1,55 @@
+networks:
+  ticketmei-net:
+    driver: bridge
+
+services:
+  catalog:
+    build: ./catalog
+    container_name: catalog
+    ports:
+      - "8001:8001"
+    networks:
+      - ticketmei-net
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - catalog
+    networks:
+      - ticketmei-net
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - ticketmei-net
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - ticketmei-net
+
+  k6:
+    image: grafana/k6:0.49.0
+    container_name: k6
+    user: root
+    working_dir: /ci-scripts
+    volumes:
+      - ./k6:/ci-scripts
+    command: run load-test.js
+    depends_on:
+      - api-gateway
+    networks:
+      - ticketmei-net
+    profiles:
+      - testing

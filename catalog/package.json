@@ -1,0 +1,14 @@
+{
+  "name": "catalog",
+  "version": "1.0.0",
+  "description": "Serviço Catalog do TicketMEI: eventos estáticos e métricas Prometheus",
+  "main": "catalog.js",
+  "scripts": {
+    "start": "node catalog.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.3.0",
+    "prom-client": "^15.1.3"
+  }
+}
