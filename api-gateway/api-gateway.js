@@ -3,14 +3,19 @@
 // ===========================================================================
 //
 // Public entry point of the system. Synchronously forwards client requests
-// to the Catalog service and exposes Prometheus metrics for monitoring.
+// to the Catalog and Order services and exposes Prometheus metrics for
+// monitoring.
 //
 // Endpoints
 // ---------
 // GET /events
 //     Forward to Catalog `GET /events`.
 // GET /events/:id
-//     Forward to Catalog `GET /events/:id`.
+//     Forward to Catalog `GET /events/:id`. The Catalog response (200 or 404)
+//     is returned as is.
+// POST /orders
+//     Forward to Order `POST /orders` (body: customer_id, customer_email,
+//     event_id, quantity). The Order response (202, 400, 404, ...) is returned as is.
 // GET /metrics
 //     Return metrics in Prometheus text format.
 //
@@ -29,6 +34,10 @@
 //     Base URL of the Catalog service (default `http://catalog:8001`).
 // CATALOG_TIMEOUT_MS : str, optional
 //     Timeout for Catalog requests in milliseconds (default `2000`).
+// ORDER_URL : str, optional
+//     Base URL of the Order service (default `http://order:8002`).
+// ORDER_TIMEOUT_MS : str, optional
+//     Timeout for Order requests in milliseconds (default `5000`).
 //
 // ===========================================================================
 
@@ -36,14 +45,18 @@ const express = require("express");
 const client = require("prom-client");
 
 // ---------------------------------------------------------------------------
-// Configuração
+// Configuration
 // ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 8000;
+
 const CATALOG_URL = process.env.CATALOG_URL || "http://catalog:8001";
 const CATALOG_TIMEOUT_MS = Number(process.env.CATALOG_TIMEOUT_MS) || 2000;
 
+const ORDER_URL = process.env.ORDER_URL || "http://order:8002";
+const ORDER_TIMEOUT_MS = Number(process.env.ORDER_TIMEOUT_MS) || 5000;
+
 // ---------------------------------------------------------------------------
-// Métricas Prometheus
+// Prometheus Metrics
 // ---------------------------------------------------------------------------
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
@@ -64,7 +77,7 @@ const requestDuration = new client.Histogram({
 });
 
 // ---------------------------------------------------------------------------
-// Aplicação
+// Application
 // ---------------------------------------------------------------------------
 const app = express();
 
@@ -73,16 +86,14 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const endpoint = req.route ? req.baseUrl + req.route.path : "unmatched";
-    requestsTotal.inc({
-      method: req.method,
-      endpoint,
-      http_status: res.statusCode,
-    });
+    requestsTotal.inc({method: req.method, endpoint, http_status: res.statusCode});
     stopTimer({ endpoint });
   });
 
   next();
 });
+
+app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Endpoints
@@ -100,24 +111,56 @@ app.get("/events", async (req, res) => {
   }
 });
 
-app.get("/metrics", async (req, res) => {
-  res.set("Content-Type", register.contentType);
-  res.end(await register.metrics());
+app.get("/events/:id", async (req, res) => {
+  try {
+    const response = await fetch(`${CATALOG_URL}/events/${encodeURIComponent(req.params.id)}`, {signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS)});
+    const body = await response.json();
+    res.status(response.status).json(body);
+  } 
+  catch (error) {
+    const timedOut = error.name === "TimeoutError";
+    console.error("Failed to reach Catalog (/events/:id):", error.message);
+    res.status(timedOut ? 504 : 502).json({error: timedOut ? "Catalog timed out" : "Catalog unavailable",});
+  }
 });
 
+app.post("/orders", async (req, res) => {
+  try {
+    const response = await fetch(`${ORDER_URL}/orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+      signal: AbortSignal.timeout(ORDER_TIMEOUT_MS),
+    });
+
+    const body = await response.json();
+    res.status(response.status).json(body);
+  } 
+  catch (error) {
+    const timedOut = error.name === "TimeoutError";
+    console.error("Failed to reach Order (/orders):", error.message);
+    res.status(timedOut ? 504 : 502).json({ error: timedOut ? "Order timed out" : "Order unavailable" });
+  }
+});
+
+app.get("/metrics", async (req, res) => { res.set("Content-Type", register.contentType); res.end(await register.metrics()); });
+
 // ---------------------------------------------------------------------------
-// Tratamento de erros
+// Error Handling
 // ---------------------------------------------------------------------------
 
 app.use((req, res) => {res.status(404).json({ error: "Route not found" });});
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err.status >= 400 && err.status < 500) 
+    return res.status(err.status).json({ error: "Invalid request body" });
+  
   console.error(err);
   res.status(500).json({ error: "Internal server error" });
 });
 
 // ---------------------------------------------------------------------------
-// Arranque
+// Startup
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {console.log(`API Gateway running on port ${PORT} (Catalog: ${CATALOG_URL})`);});
