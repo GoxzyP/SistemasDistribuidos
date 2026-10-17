@@ -36,3 +36,6 @@ desktop.ini
 # Build / coverage output
 dist/
 coverage/
+
+# Notification delivery log (generated at runtime)
+notification/logs/

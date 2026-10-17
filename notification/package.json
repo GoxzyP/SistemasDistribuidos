@@ -1,0 +1,15 @@
+{
+  "name": "notification",
+  "version": "1.0.0",
+  "description": "Notification service for TicketMEI: consumes OrderCreated events from RabbitMQ and simulates e-mail confirmations",
+  "main": "notification.js",
+  "scripts": {
+    "start": "node notification.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "amqplib": "^0.10.5",
+    "express": "^5.3.0",
+    "prom-client": "^15.1.3"
+  }
+}
