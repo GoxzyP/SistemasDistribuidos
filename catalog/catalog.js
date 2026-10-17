@@ -36,18 +36,18 @@ const express = require("express");
 const client = require("prom-client");
 
 // ---------------------------------------------------------------------------
-// Configuração
+// Configuration
 // ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 8001;
 const EVENTS_FILE = process.env.EVENTS_FILE || path.join(__dirname, "data", "events.json");
 
 // ---------------------------------------------------------------------------
-// Dados
+// Data
 // ---------------------------------------------------------------------------
 const events = JSON.parse(fs.readFileSync(EVENTS_FILE, "utf-8"));
 
 // ---------------------------------------------------------------------------
-// Métricas Prometheus
+// Prometheus Metrics
 // ---------------------------------------------------------------------------
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
@@ -68,7 +68,7 @@ const requestDuration = new client.Histogram({
 });
 
 // ---------------------------------------------------------------------------
-// Aplicação
+// Application
 // ---------------------------------------------------------------------------
 const app = express();
 
@@ -88,9 +88,7 @@ app.use((req, res, next) => {
 // Endpoints
 // ---------------------------------------------------------------------------
 
-app.get("/events", (req, res) => {
-  res.json(events);
-});
+app.get("/events", (req, res) => { res.json(events); });
 
 app.get("/events/:id", (req, res) => {
   const event = events.find((e) => e.id === req.params.id);
@@ -101,29 +99,19 @@ app.get("/events/:id", (req, res) => {
   res.json(event);
 });
 
-app.get("/metrics", async (req, res) => {
-  res.set("Content-Type", register.contentType);
-  res.end(await register.metrics());
-});
+app.get("/metrics", async (req, res) => { res.set("Content-Type", register.contentType); res.end(await register.metrics()); });
 
 // ---------------------------------------------------------------------------
-// Tratamento de erros
+// Error Handling
 // ---------------------------------------------------------------------------
 
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
-});
+app.use((req, res) => { res.status(404).json({ error: "Route not found" }); });
 
 // eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: "Internal server error" });
-});
+app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: "Internal server error" }); });
 
 // ---------------------------------------------------------------------------
-// Arranque
+// // Startup
 // ---------------------------------------------------------------------------
 
-app.listen(PORT, () => {
-  console.log(`Catalog running on port ${PORT} (${events.length} events loaded)`);
-});
+app.listen(PORT, () => { console.log(`Catalog running on port ${PORT} (${events.length} events loaded)`); });
