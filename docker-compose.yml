@@ -11,6 +11,57 @@ services:
     networks:
       - ticketmei-net
 
+  order:
+    build: ./order
+    container_name: order
+    environment:
+      CATALOG_URL: http://catalog:8001
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    ports:
+      - "8002:8002"
+    depends_on:
+      catalog:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ticketmei-net
+
+  notification:
+    build: ./notification
+    container_name: notification
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    ports:
+      - "8003:8003"
+    volumes:
+      # The delivery log (notification_logs.json) also appears on the host
+      - ./notification/logs:/app/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ticketmei-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"     # AMQP (used by the services)
+      - "15672:15672"   # management UI (guest / guest)
+      - "15692:15692"   # Prometheus metrics (queue size, etc.)
+    volumes:
+      # Enables the management UI and the Prometheus plugin
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - ticketmei-net
+
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
@@ -18,6 +69,7 @@ services:
       - "8000:8000"
     depends_on:
       - catalog
+      - order
     networks:
       - ticketmei-net
 
