@@ -46,6 +46,12 @@ jobs:
 
       - name: Smoke tests through the API Gateway
         run: |
+          # `--wait` only waits for the containers to be running, not for the app to listen
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/events > /dev/null 2>&1; then break; fi
+            echo "Waiting for the API Gateway ($i/30)..."
+            sleep 2
+          done
           curl -fsS http://localhost:8000/events > /dev/null
           curl -fsS http://localhost:8000/events/evt-101 > /dev/null
           curl -fsS http://localhost:8000/metrics | grep -q gateway_requests_total
