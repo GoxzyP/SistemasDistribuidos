@@ -55,11 +55,21 @@ jobs:
           curl -fsS http://localhost:8000/events > /dev/null
           curl -fsS http://localhost:8000/events/evt-101 > /dev/null
           curl -fsS http://localhost:8000/metrics | grep -q gateway_requests_total
-          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/orders \
-            -H "Content-Type: application/json" \
-            -d '{"customer_id":"c-1","customer_email":"a@b.pt","event_id":"evt-101","quantity":2}')
-          echo "POST /orders -> $status"
+          # The order service may still be connecting to RabbitMQ: retry until 202
+          status=000
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/orders \
+              -H "Content-Type: application/json" \
+              -d '{"customer_id":"c-1","customer_email":"a@b.pt","event_id":"evt-101","quantity":2}')
+            echo "POST /orders -> $status ($i/30)"
+            if [ "$status" = "202" ]; then break; fi
+            sleep 2
+          done
           test "$status" = "202"
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail=50 api-gateway order rabbitmq
 
       - name: Short k6 run (smoke, thresholds disabled)
         run: docker compose --profile testing run --rm k6 run --vus 5 --duration 15s --no-thresholds load-test.js
