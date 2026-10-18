@@ -20,7 +20,7 @@ spec:
       containers:
         - name: catalog
           # The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/catalog:ffe7686a0a5b972d932b4eed2a4d72814781690a
+          image: ghcr.io/goxzyp/sistemasdistribuidos/catalog:0e0793e8585816eba485dfdae3d7023fbad79dde
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
