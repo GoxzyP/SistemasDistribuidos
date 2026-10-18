@@ -1,0 +1,25 @@
+# Applied ONCE by hand (kubectl apply -f argocd/application.yaml).
+# From then on Argo CD watches the k8s/ folder of the Git repository and keeps
+# the cluster in sync with it: no more `kubectl apply`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ticketmei
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GoxzyP/SistemasDistribuidos.git
+    targetRevision: parte3   # the branch Argo CD follows (the same one the workflow runs on)
+    path: k8s                # contains kustomization.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ticketmei
+  syncPolicy:
+    automated:
+      prune: true      # removes from the cluster what was removed from Git
+      selfHeal: true   # undoes manual changes made directly in the cluster
+    syncOptions:
+      - CreateNamespace=true
+      # The RabbitMQ dashboard ConfigMap is bigger than the client-side apply limit
+      - ServerSideApply=true

@@ -1,0 +1,176 @@
+name: CI/CD
+
+# validate        -> builds the Docker Compose stack and runs smoke tests (+ a short k6 run)
+# changes         -> detects which services changed in the push
+# build-push      -> builds only the changed services and publishes them to GHCR, tagged with the Git SHA
+# update-manifests-> writes the new tags in k8s/<service>/deployment.yaml; Argo CD then deploys them
+
+on:
+  push:
+    branches: [master, parte3]
+    # Tag updates made by the pipeline itself must not trigger it again
+    paths-ignore:
+      - "k8s/**"
+      - "argocd/**"
+      - "**/*.md"
+  pull_request:
+    branches: [master, parte3]
+  # Manual run: builds and publishes ALL services. (The button only shows up in the
+  # Actions tab once this file exists on the default branch; until then use a commit
+  # message containing [build-all], which does the same.)
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the Compose file
+        run: docker compose config --quiet
+
+      - name: Build the images
+        run: docker compose build
+
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Smoke tests through the API Gateway
+        run: |
+          curl -fsS http://localhost:8000/events > /dev/null
+          curl -fsS http://localhost:8000/events/evt-101 > /dev/null
+          curl -fsS http://localhost:8000/metrics | grep -q gateway_requests_total
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"customer_id":"c-1","customer_email":"a@b.pt","event_id":"evt-101","quantity":2}')
+          echo "POST /orders -> $status"
+          test "$status" = "202"
+
+      - name: Short k6 run (smoke, thresholds disabled)
+        run: docker compose --profile testing run --rm k6 run --vus 5 --duration 15s --no-thresholds load-test.js
+
+      - name: Rate limiter returns 429
+        run: |
+          codes=""
+          for i in $(seq 1 12); do
+            codes="$codes $(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8000/orders \
+              -H 'Content-Type: application/json' \
+              -d '{"customer_id":"c-1","customer_email":"a@b.pt","event_id":"evt-101","quantity":1}')"
+          done
+          echo "Status codes:$codes"
+          echo "$codes" | grep -q 429
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose --profile testing down -v
+
+  # -------------------------------------------------------------------------
+  changes:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      # JSON array with the names of the changed services, e.g. ["catalog","order"]
+      services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","api-gateway"]' || steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[build-all]')
+        with:
+          filters: |
+            catalog:
+              - 'catalog/**'
+            order:
+              - 'order/**'
+            notification:
+              - 'notification/**'
+            api-gateway:
+              - 'api-gateway/**'
+
+  # -------------------------------------------------------------------------
+  build-push:
+    needs: [validate, changes]
+    if: needs.changes.outputs.services != '' && needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name (GHCR needs lowercase)
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (tag = Git SHA)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          push: true
+          tags: ${{ steps.img.outputs.name }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # -------------------------------------------------------------------------
+  update-manifests:
+    needs: [changes, build-push]
+    if: needs.build-push.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write the new image tags in k8s/
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+        run: |
+          for svc in $(echo "$SERVICES" | jq -r '.[]'); do
+            file="k8s/$svc/deployment.yaml"
+            sed -i -E "s|(image: ghcr.io/[^/]+/[^/]+/$svc):.*|\1:${GITHUB_SHA}|" "$file"
+            grep "image:" "$file"
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add k8s
+          if git diff --cached --quiet; then
+            echo "No manifest changes"
+            exit 0
+          fi
+          git commit -m "ci: update image tags to ${GITHUB_SHA::7} [skip ci]"
+          for attempt in 1 2 3; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep 3
+          done
+          exit 1

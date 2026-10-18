@@ -62,14 +62,30 @@ services:
     networks:
       - ticketmei-net
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketmei-net
+
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
+    environment:
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_MAX: "5"
+      RATE_LIMIT_WINDOW_MS: "1000"
     ports:
       - "8000:8000"
     depends_on:
       - catalog
       - order
+      - redis
     networks:
       - ticketmei-net
 
