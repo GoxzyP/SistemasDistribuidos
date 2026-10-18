@@ -20,7 +20,7 @@ spec:
       containers:
         - name: order
           # The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/order:dev
+          image: ghcr.io/goxzyp/sistemasdistribuidos/order:52241d79a54e240bb93b34b953b391b4576d994c
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002
