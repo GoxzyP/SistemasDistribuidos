@@ -20,7 +20,7 @@ spec:
       containers:
         - name: notification
           # The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/notification:5508138a37244332d930300fb7a785e63e539795
+          image: ghcr.io/goxzyp/sistemasdistribuidos/notification:ffe7686a0a5b972d932b4eed2a4d72814781690a
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8003
