@@ -107,6 +107,7 @@ jobs:
         id: filter
         if: github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[build-all]')
         with:
+          base: ${{ github.event.before }}
           filters: |
             catalog:
               - 'catalog/**'
