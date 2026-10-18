@@ -114,4 +114,4 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
 // // Startup
 // ---------------------------------------------------------------------------
 
-app.listen(PORT, () => { console.log(`Catalog running on port ${PORT} (${events.length} events loaded)`); });
+app.listen(PORT, () => { console.log(`Catalog running on port ${PORT} (${events.length} events loaded!!)`); });
