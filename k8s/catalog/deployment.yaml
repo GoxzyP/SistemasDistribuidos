@@ -17,7 +17,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: catalog
-          image: ghcr.io/goxzyp/sistemasdistribuidos/catalog:0e0793e8585816eba485dfdae3d7023fbad79dde
+          image: ghcr.io/goxzyp/sistemasdistribuidos/catalog:437adfe95ce053236a405f68b99f87cbcd239695
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
