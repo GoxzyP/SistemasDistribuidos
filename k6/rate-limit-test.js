@@ -19,21 +19,20 @@ export const options = {
   scenarios: {
     burst: {
       executor: 'constant-arrival-rate',
-      rate: 20,            // iterations (requests) per second
+      rate: 20,           
       timeUnit: '1s',
       duration: '10s',
       preAllocatedVUs: 20,
     },
   },
   thresholds: {
-    orders_accepted_202: ['count>0'],      // some requests go through...
-    orders_rate_limited_429: ['count>0'],  // ...and the excess is rejected
+    orders_accepted_202: ['count>0'],     
+    orders_rate_limited_429: ['count>0'], 
   },
 };
 
 const params = {
   headers: { 'Content-Type': 'application/json' },
-  // 202 and 429 are the expected answers in this test
   responseCallback: http.expectedStatuses(202, 429),
 };
 

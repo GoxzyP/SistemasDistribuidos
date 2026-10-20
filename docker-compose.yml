@@ -35,7 +35,6 @@ services:
     ports:
       - "8003:8003"
     volumes:
-      # The delivery log (notification_logs.json) also appears on the host
       - ./notification/logs:/app/logs
     depends_on:
       rabbitmq:
@@ -47,11 +46,10 @@ services:
     image: rabbitmq:3.13-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"     # AMQP (used by the services)
-      - "15672:15672"   # management UI (guest / guest)
-      - "15692:15692"   # Prometheus metrics (queue size, etc.)
+      - "5672:5672"     #AMQP (used by the services)
+      - "15672:15672"   #management UI (guest / guest)
+      - "15692:15692"   #Prometheus metrics (queue size, etc.)
     volumes:
-      # Enables the management UI and the Prometheus plugin
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]

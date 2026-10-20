@@ -14,8 +14,6 @@ spec:
       labels:
         app: rabbitmq
     spec:
-      # Important here: a Service called "rabbitmq" would otherwise inject
-      # RABBITMQ_* variables into the broker's own container.
       enableServiceLinks: false
       containers:
         - name: rabbitmq
@@ -28,7 +26,6 @@ spec:
             - name: prometheus
               containerPort: 15692
           volumeMounts:
-            # Enables the management UI and the Prometheus plugin
             - name: plugins
               mountPath: /etc/rabbitmq/enabled_plugins
               subPath: enabled_plugins

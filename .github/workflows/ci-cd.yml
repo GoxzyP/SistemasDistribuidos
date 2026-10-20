@@ -8,16 +8,12 @@ name: CI/CD
 on:
   push:
     branches: [master, parte3]
-    # Tag updates made by the pipeline itself must not trigger it again
     paths-ignore:
       - "k8s/**"
       - "argocd/**"
       - "**/*.md"
   pull_request:
     branches: [master, parte3]
-  # Manual run: builds and publishes ALL services. (The button only shows up in the
-  # Actions tab once this file exists on the default branch; until then use a commit
-  # message containing [build-all], which does the same.)
   workflow_dispatch:
 
 concurrency:
@@ -98,7 +94,6 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      # JSON array with the names of the changed services, e.g. ["catalog","order"]
       services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","api-gateway"]' || steps.filter.outputs.changes }}
     steps:
       - uses: actions/checkout@v4

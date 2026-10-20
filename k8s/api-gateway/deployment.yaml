@@ -14,12 +14,10 @@ spec:
       labels:
         app: api-gateway
     spec:
-      # Services are reached through DNS (catalog, order, rabbitmq, ...), so the
-      # legacy *_PORT variables that Kubernetes injects are not needed.
       enableServiceLinks: false
       containers:
         - name: api-gateway
-          # The tag is updated automatically by the CI/CD pipeline (Git SHA).
+          #The tag is updated automatically by the CI/CD pipeline (Git SHA).
           image: ghcr.io/goxzyp/sistemasdistribuidos/api-gateway:ffe7686a0a5b972d932b4eed2a4d72814781690a
           imagePullPolicy: IfNotPresent
           ports:

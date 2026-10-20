@@ -47,11 +47,10 @@ function validOrder() {
     customer_id: `c-${__VU}`,
     customer_email: `user${__VU}@example.com`,
     event_id: pick(EVENT_IDS),
-    quantity: 1 + Math.floor(Math.random() * 4), // 1..4 (the limit per order)
+    quantity: 1 + Math.floor(Math.random() * 4),
   });
 }
 
-// Id of the last order created by this VU (module state is per VU in k6).
 let lastOrderId = null;
 
 // ---------------------------------------------------------------------------

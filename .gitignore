@@ -1,41 +1,41 @@
-# Dependencies (reinstalled with `npm ci`; package-lock.json must stay tracked)
+#Dependencies (reinstalled with `npm ci`; package-lock.json must stay tracked)
 node_modules/
 
-# Logs
+#Logs
 *.log
 npm-debug.log*
 
-# Environment variables / secrets
+#Environment variables / secrets
 .env
 .env.*
 !.env.example
 
-# Docker Compose local overrides
+#Docker Compose local overrides
 docker-compose.override.yml
 
-# Persistent data from local containers (Grafana, Prometheus)
+#Persistent data from local containers (Grafana, Prometheus)
 grafana-data/
 prometheus-data/
 
-# k6 output files
+#k6 output files
 k6/*.json.gz
 k6/results/
 summary.json
 
-# OS files
+#OS files
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Editors / IDEs
+#Editors / IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Build / coverage output
+#Build / coverage output
 dist/
 coverage/
 
-# Notification delivery log (generated at runtime)
+#Notification delivery log (generated at runtime)
 notification/logs/

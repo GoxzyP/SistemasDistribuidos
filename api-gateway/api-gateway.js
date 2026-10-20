@@ -105,10 +105,6 @@ const rateLimitedTotal = new client.Counter({
 // ---------------------------------------------------------------------------
 // Rate limiter (Redis)
 // ---------------------------------------------------------------------------
-// Fixed window per client IP. The counters live in Redis, so the limit is shared
-// by every gateway instance. The Lua script runs atomically inside Redis: it
-// increments the counter, starts the window on the first request and returns
-// the counter together with the time left in the window.
 const RATE_LIMIT_SCRIPT = `
   local count = redis.call("INCR", KEYS[1])
   if count == 1 then
@@ -121,8 +117,6 @@ const redis = createClient({ url: REDIS_URL });
 redis.on("error", (err) => console.error("Redis error:", err.message));
 redis.connect().catch((err) => console.error("Redis connection failed:", err.message));
 
-// If Redis is down the limiter "fails open": requests are allowed and the
-// problem is logged, so a Redis outage does not take the whole gateway down.
 async function rateLimitOrders(req, res, next) {
   try {
     if (!redis.isReady)
@@ -154,8 +148,6 @@ async function rateLimitOrders(req, res, next) {
 // ---------------------------------------------------------------------------
 const app = express();
 
-// Only trust X-Forwarded-For when the gateway really sits behind a proxy;
-// otherwise a client could fake its IP and bypass the rate limit.
 if (TRUST_PROXY > 0)
   app.set("trust proxy", TRUST_PROXY);
 
