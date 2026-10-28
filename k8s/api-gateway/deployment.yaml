@@ -18,7 +18,7 @@ spec:
       containers:
         - name: api-gateway
           #The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/api-gateway:7435be3be3f21a368d07118b15b032da8ca08367
+          image: ghcr.io/goxzyp/sistemasdistribuidos/api-gateway:e1d9204f33542b5849f67e3091ddeb71ec3cac62
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
