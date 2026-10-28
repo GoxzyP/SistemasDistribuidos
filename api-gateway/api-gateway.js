@@ -233,4 +233,4 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {console.log(`API Gateway running on port ${PORT} (Catalog: ${CATALOG_URL})`);});s
+app.listen(PORT, () => {console.log(`teste: API Gateway running on port ${PORT} (Catalog: ${CATALOG_URL})`);});s
