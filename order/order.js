@@ -302,9 +302,13 @@ app.use(express.json());
  * ---------------------------------------------------------------------------
  */
 
+
 // POST /orders
-// Creates a new order. Validates the request body, fetches event details from the Catalog service,
-// and publishes an "OrderCreated" message to RabbitMQ. Returns 202 on success, or appropriate error codes.
+//  Create an order. Body (JSON):
+//  { "customer_id": "c-1", "customer_email": "a@b.pt", "event_id": "evt-101", "quantity": 2 }
+//  Responses: 202 (accepted, order PENDING), 400 (invalid body),
+//             404 (unknown event), 502/504 (Catalog down/slow),
+//             503 (message broker unavailable).
 app.post("/orders", async (req, res) => {
     const body = req.body || {};
 
