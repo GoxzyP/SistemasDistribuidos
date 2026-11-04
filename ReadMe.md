@@ -10,55 +10,32 @@ To prevent latency degradation under heavy load, order confirmations are pushed 
 
 ---
 
-## Services and endpoints
 
-Document each service's endpoints below. Include the HTTP method, path, purpose, required inputs, and response. Replace the placeholders with the actual API routes.
+
+## Central Dashboard & Access Hub
+
+Quick reference for all local services, dashboards, and default credentials included in the Docker Compose stack:
+
+| Service / Tool | Local URL / Endpoint | Default Credentials / Access Notes |
+| :--- | :--- | :--- |
+| **API Gateway** *(Public Entry)* | `http://localhost:8000` | Public entry point; rate-limited on `/orders` (max 5 req/sec/IP) |
+| **Grafana Dashboard** | `http://localhost:3000` | **Username:** `admin` / **Password:** `admin` |
+| **Prometheus UI** | `http://localhost:9090` | Direct metric scraper & query explorer |
+| **RabbitMQ Management UI** | `http://localhost:15672` | **Username:** `guest` / **Password:** `guest` |
+| **Catalog Service** *(Internal)* | `http://localhost:8001` | Manages events and pricing |
+| **Order Service** *(Internal)* | `http://localhost:8002` | Processes orders and publishes events |
+| **Notification Service** *(Async)* | Logged to `./notification/logs` | Consumes messages from RabbitMQ queue |
+
+---
+
+## Services and endpoints
 
 | Service | Method | Endpoint | Purpose | Inputs and response |
 |---|---|---|---|---|
-| [Service name] | [GET/POST/PUT/DELETE] | `[/path]` | [Purpose] | [Parameters/body and response] |
-
-### Service details
-
-#### [Service name]
-
-- **Responsibility:** [What this service does]
-- **Base URL/port:** [Address or service discovery details]
-- **Dependencies:** [Services or external APIs it calls]
-- **API documentation:** [Link, if available]
-
-## Add-ons and dependencies
-
-List all frameworks, libraries, infrastructure components, and tools used by the project, with versions and their purpose.
-
-| Add-on/dependency | Version | Purpose | Setup/configuration |
-|---|---|---|---|
-| [Name] | [Version] | [How it is used] | [Install or configuration notes] |
-
-## Setup and running
-
-1. Install the required runtimes and dependencies: [instructions].
-2. Configure required environment variables or configuration files: [instructions].
-3. Start the services: `[commands]`.
-4. Check that the application is running at [URL or health endpoint].
-
-## Configuration
-
-Document required settings here. Do not include passwords, API keys, or other secrets.
-
-| Setting | Required? | Description/example |
-|---|---|---|
-| [Variable or setting] | [Yes/No] | [Purpose and safe example] |
-
-## Example usage
-
-```http
-[METHOD] [BASE_URL]/[endpoint]
-Content-Type: application/json
-
-{ "example": "Replace with a request supported by the project" }
-```
-
-**Expected response:** [Document the actual status code and response format.]
-
-> Replace bracketed placeholders with verified project details. The supplied file contained no implementation, endpoint, or dependency information, so specific services and add-ons cannot be named accurately yet.
+| **API Gateway** | GET | `/events` | Retrieve all available events | Response: `200 OK` (Array of events) |
+| **API Gateway** | GET | `/events/:id` | Retrieve details for a specific event | Path: `id`<br>Response: `200 OK`, `404 Not Found` |
+| **API Gateway** | POST | `/orders` | Submit a new ticket order (Rate-limited) | Body: `customer_id`, `customer_email`, `event_id`, `quantity`<br>Response: `202 Accepted`, `400`, `429`, `502`, `503` |
+| **API Gateway** | GET | `/metrics` | Expose Prometheus metrics for monitoring | Response: `200 OK` (Prometheus text format) |
+| **Order Service** | POST | `/orders` | Internal order creation & queue publishing | Body: `customer_id`, `customer_email`, `event_id`, `quantity`<br>Response: `202 Accepted`, `503` |
+| **Order Service** | GET | `/orders/:id` | Retrieve stored order state | Path: `id`<br>Response: `200 OK`, `404 Not Found` |
+| **Notification Service** | *Async* | RabbitMQ Queue (`order_created`) | Consumes order creation events and logs delivery | Payload: `type`, `order_id`, `email` |
