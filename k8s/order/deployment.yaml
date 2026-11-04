@@ -17,7 +17,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: order
-          image: ghcr.io/goxzyp/sistemasdistribuidos/order:ffe7686a0a5b972d932b4eed2a4d72814781690a
+          image: ghcr.io/goxzyp/sistemasdistribuidos/order:0d6daf8780c18084f5bcb3f11720500d98070abf
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002
