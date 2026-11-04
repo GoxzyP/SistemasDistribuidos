@@ -39,3 +39,24 @@ Quick reference for all local services, dashboards, and default credentials incl
 | **Order Service** | POST | `/orders` | Internal order creation & queue publishing | Body: `customer_id`, `customer_email`, `event_id`, `quantity`<br>Response: `202 Accepted`, `503` |
 | **Order Service** | GET | `/orders/:id` | Retrieve stored order state | Path: `id`<br>Response: `200 OK`, `404 Not Found` |
 | **Notification Service** | *Async* | RabbitMQ Queue (`order_created`) | Consumes order creation events and logs delivery | Payload: `type`, `order_id`, `email` |
+
+## Add-ons and dependencies
+
+| Add-on/dependency | Version | Purpose | Setup/configuration |
+|---|---|---|---|
+| **Node.js / Express** | Latest LTS | Core runtime and web framework for microservices | Local build via Dockerfiles |
+| **Redis** | `7-alpine` | Fast atomic storage for API Gateway rate limiting | Docker container (`redis`) |
+| **RabbitMQ** | `3.13-management` | Asynchronous message broker for event-driven decoupling | Docker container (`rabbitmq`) |
+| **Prometheus** | `v2.50.0` | Metrics collection and storage engine | Configured via `./prometheus/prometheus.yml` |
+| **Grafana** | `10.3.1` | Visualization dashboards for system metrics | Configured via `./grafana/provisioning` |
+| **prom-client** | Latest | Prometheus metrics instrumentation for Node.js | `npm install prom-client` |
+| **amqplib** | Latest | AMQP 0-9-1 client library for Node.js / RabbitMQ | `npm install amqplib` |
+| **k6** | `0.49.0` | Performance and load testing tool | Executed via Docker profile |
+
+---
+
+## Setup and running
+
+1. **Start all infrastructure and microservices via Docker Compose:**
+   ```bash
+   docker compose up --build -d
