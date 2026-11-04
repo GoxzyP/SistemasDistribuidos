@@ -60,3 +60,23 @@ Quick reference for all local services, dashboards, and default credentials incl
 1. **Start all infrastructure and microservices via Docker Compose:**
    ```bash
    docker compose up --build -d
+
+
+## Testing and usage
+
+1. **Example to make and order**
+
+curl -X POST http://localhost:8000/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "cust-123",
+    "customer_email": "user@example.com",
+    "event_id": "evt-101",
+    "quantity": 2
+  }'
+
+2. **Example to fetch all events**
+curl -X GET http://localhost:8000/events
+
+3. **Testing load via script load-test.js**
+docker compose --profile testing run --rm k6
