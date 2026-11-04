@@ -1,11 +1,15 @@
-// ===========================================================================
-// Order service for TicketMEI
-// ===========================================================================
-//
-// Receives ticket purchase requests, stores them in the PENDING state and
-// publishes an "OrderCreated" message to RabbitMQ so that the Notification
-// service can send the confirmation e-mail asynchronously.
-//
+/**
+ * ===========================================================================
+ *  Order service for TicketMEI
+ * ===========================================================================
+ * 
+ * Receives ticket purchase requests, stores them in the PENDING state and
+ * publishes an "OrderCreated" message to RabbitMQ so that the Notification
+ * service can send the confirmation e-mail asynchronously.
+ * 
+ * ===========================================================================
+ */
+
 // Endpoints
 // ---------
 // POST /orders
@@ -39,39 +43,62 @@
 //
 // ===========================================================================
 
+/**
+ * ---------------------------------------------------------------------------
+ * Configuration
+ * 
+ * Sets environment variables for the Order service, including the port to listen on,
+ * the Catalog service URL, RabbitMQ connection details, and order constraints.
+ * ---------------------------------------------------------------------------
+ */
 const crypto = require("crypto");
 const express = require("express");
 const client = require("prom-client");
 const amqp = require("amqplib");
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
+// PORT : optional, port to listen on (default 8002).
 const PORT = process.env.PORT || 8002;
 
+// CATALOG_URL : optional, Catalog base URL (default http://catalog:8001).
 const CATALOG_URL = process.env.CATALOG_URL || "http://catalog:8001";
+// CATALOG_TIMEOUT_MS : optional, Catalog request timeout (default 2000).
 const CATALOG_TIMEOUT_MS = Number(process.env.CATALOG_TIMEOUT_MS) || 2000;
 
+// RABBITMQ_URL : optional, AMQP URL (default amqp://guest:guest@rabbitmq:5672).
 const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://guest:guest@rabbitmq:5672";
+// ORDER_QUEUE : optional, queue name (default order_created).
 const ORDER_QUEUE = process.env.ORDER_QUEUE || "order_created";
-const RABBITMQ_RETRY_MS = 3000;
+// RABBITMQ_RETRY_MS : optional, retry interval for RabbitMQ reconnection (default 3000).
+const RABBITMQ_RETRY_MS = Number(process.env.RABBITMQ_RETRY_MS) || 3000;
 
+// MAX_TICKETS_PER_ORDER : optional, ticket limit per order (default 4).
 const MAX_TICKETS_PER_ORDER = Number(process.env.MAX_TICKETS_PER_ORDER) || 4;
 
-// ---------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------
+/**
+ * ---------------------------------------------------------------------------
+ * Data
+ * 
+ * Stores orders in memory using a Map, keyed by order ID. Each order contains
+ * customer information, event ID, quantity, total amount, status, and timestamp.
+ * ---------------------------------------------------------------------------
+ */
 
 const orders = new Map();
 
-// ---------------------------------------------------------------------------
-// Prometheus metrics
-// ---------------------------------------------------------------------------
-
+/**
+ * ---------------------------------------------------------------------------
+ * Prometheus metrics
+ * 
+ * Initializes the Prometheus metrics registry, collects Node.js default runtime stats (CPU, memory),
+ * and defines custom counters and histograms for monitoring order service traffic and latencies.
+ * ---------------------------------------------------------------------------
+ */
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
 
+// order_requests_total : Counter
+// Counter metric to track the total number of HTTP requests received by the Order service,
+// labeled by endpoint and HTTP status code.
 const requestsTotal = new client.Counter({
   name: "order_requests_total",
   help: "Total HTTP requests received by the Order service",
@@ -79,6 +106,8 @@ const requestsTotal = new client.Counter({
   registers: [register],
 });
 
+// order_request_duration_seconds : Histogram
+// Histogram metric to track the duration of HTTP requests in seconds, labeled by endpoint.
 const requestDuration = new client.Histogram({
   name: "order_request_duration_seconds",
   help: "Duration of Order HTTP requests in seconds",
@@ -87,6 +116,9 @@ const requestDuration = new client.Histogram({
   registers: [register],
 });
 
+// orders_initiated_total : Counter
+// Counter metric to track the total number of orders initiated via POST /orders,
+// labeled by resulting status (PENDING or FAILED).
 const ordersInitiatedTotal = new client.Counter({
   name: "orders_initiated_total",
   help: "Orders handled by POST /orders, by resulting status",
@@ -94,13 +126,25 @@ const ordersInitiatedTotal = new client.Counter({
   registers: [register],
 });
 
-// ---------------------------------------------------------------------------
-// RabbitMQ
-// ---------------------------------------------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * RabbitMQ connection and channel management 
+ * 
+ * Handles the connection to RabbitMQ, including automatic reconnection on failure,
+ * channel creation, and message publishing to the specified queue.
+ * ---------------------------------------------------------------------------
+ */
 let channel = null;
 let reconnectTimer = null;
 
+/**
+ * 
+ * Schedules a reconnection attempt to RabbitMQ after a specified delay if the connection is lost.
+ * If a reconnection attempt is already scheduled, it does nothing.
+ * 
+ * @returns {void}
+ */
 function scheduleReconnect() {
   channel = null;
 
@@ -110,6 +154,10 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRabbit(); }, RABBITMQ_RETRY_MS);
 }
 
+/**
+ * Connects to RabbitMQ and creates a confirm channel.
+ * @returns {Promise<void>}
+ */
 async function connectRabbit() {
   let connection = null;
 
@@ -142,6 +190,11 @@ async function connectRabbit() {
   }
 }
 
+/**
+ * Publishes a message to the RabbitMQ queue.
+ * @param {*} message 
+ * @returns {Promise<void>}
+ */
 function publishToQueue(message) {
   return new Promise((resolve, reject) => {
     if (!channel) 
@@ -156,10 +209,20 @@ function publishToQueue(message) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+-
+/**
+ * ---------------------------------------------------------------------------
+ * Helper functions
+ * 
+ * Provides utility functions for validating order requests and fetching event data 
+ * ---------------------------------------------------------------------------
+ */
 
+/**
+ * Validates the order request body.
+ * @param {*} body 
+ * @returns {string[]} An array of validation errors.
+ */
 function validateOrderRequest(body) {
     const errors = [];
     const isText = (value) => typeof value === "string" && value.trim() !== "";
@@ -176,6 +239,11 @@ function validateOrderRequest(body) {
     return errors;
 }
 
+/**
+ * Fetches event information from the catalog.
+ * @param {*} eventId 
+ * @returns 
+ */
 async function fetchEvent(eventId) {
     let response;
 
@@ -199,6 +267,15 @@ async function fetchEvent(eventId) {
 // Application
 // ---------------------------------------------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * Application Logic  
+ * 
+ * Implementation of the Express application that serves as the Order service.
+ * It handles order creation, retrieval, error handling, and exposes Prometheus metrics for monitoring.
+ * ---------------------------------------------------------------------------
+ * 
+ */
 const app = express();
 
 app.use((req, res, next) => {
@@ -215,10 +292,19 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ---------------------------------------------------------------------------
-// Endpoints
-// ---------------------------------------------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * Order Endpoints
+ * 
+ * Defines the HTTP endpoints for the Order service, including routes to
+ * create an order, retrieve a single order by ID, and expose Prometheus metrics.
+ * ---------------------------------------------------------------------------
+ */
+
+// POST /orders
+// Creates a new order. Validates the request body, fetches event details from the Catalog service,
+// and publishes an "OrderCreated" message to RabbitMQ. Returns 202 on success, or appropriate error codes.
 app.post("/orders", async (req, res) => {
     const body = req.body || {};
 
@@ -263,6 +349,8 @@ app.post("/orders", async (req, res) => {
     res.status(202).json(order);
 });
 
+// GET /orders/:id
+// Retrieves a single order by its ID.
 app.get("/orders/:id", (req, res) => {
   const order = orders.get(req.params.id);
 
@@ -272,14 +360,23 @@ app.get("/orders/:id", (req, res) => {
   res.json(order);
 });
 
+// GET /metrics
+// Returns Prometheus metrics in text format for monitoring.
 app.get("/metrics", async (req, res) => { res.set("Content-Type", register.contentType); res.end(await register.metrics()); });
 
-// ---------------------------------------------------------------------------
-// Error handling
-// ---------------------------------------------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * Error Handling
+ * 
+ * Defines middleware for handling 404 (route not found) and 500 (internal server error) responses.
+ * ---------------------------------------------------------------------------
+ */
+
+// 404 for unmatched routes
 app.use((req, res) => { res.status(404).json({ error: "Route not found" }); });
 
+// 500 for internal server errors
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err.status >= 400 && err.status < 500) 
@@ -289,9 +386,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-// ---------------------------------------------------------------------------
-// Startup
-// ---------------------------------------------------------------------------
 
+/**
+ * ---------------------------------------------------------------------------
+ * Startup
+ * 
+ * Starts the Express application and listens on the specified port, logging the queue being consumed.
+ */
 app.listen(PORT, () => { console.log(`Order running on port ${PORT} (Catalog: ${CATALOG_URL})`); });
 connectRabbit();
