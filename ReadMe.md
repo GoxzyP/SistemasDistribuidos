@@ -2,7 +2,13 @@
 
 ## Project overview
 
-Describe the goal of the project, the problem it solves, and how its distributed services work together. The original README was empty, so fill in this section with details from the implementation.
+**TicketMEI** is a  microservices-based ticket purchasing and event management platform designed to handle high-concurrency traffic efficiently. The system solves the challenge of traffic spikes during popular event ticket drops by decoupling critical ordering paths from non-critical background tasks.
+
+An **API Gateway** acts as the single public entry point, protecting backend services using a Redis-backed rate limiter. 
+The **Catalog Service** manages event inventory and pricing, while the **Order Service** processes purchases and validates requests. 
+To prevent latency degradation under heavy load, order confirmations are pushed asynchronously via **RabbitMQ** to a decoupled **Notification Service**, ensuring high throughput, fault tolerance, and resilience (validated using `k6` performance testing).
+
+---
 
 ## Services and endpoints
 
