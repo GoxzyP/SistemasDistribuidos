@@ -27,12 +27,18 @@
 //
 // Environment Variables
 // ---------------------
-// PORT : optional, port for /metrics (default 8003).
-// RABBITMQ_URL : optional, AMQP URL (default amqp://guest:guest@rabbitmq:5672).
-// ORDER_QUEUE : optional, queue to consume (default order_created).
-// EMAIL_DELAY_MS : optional, simulated e-mail sending time (default 100).
-// PREFETCH : optional, messages processed at the same time (default 1).
-// LOG_FILE : optional, delivery log path (default ./logs/notification_logs.json).
+// PORT : int, optional
+//     Port for /metrics (default `8003`).
+// RABBITMQ_URL : str, optional
+//     AMQP connection URL (default `amqp://guest:guest@rabbitmq:5672`).
+// ORDER_QUEUE : str, optional
+//     Queue to consume (default `order_created`).
+// EMAIL_DELAY_MS : int, optional
+//     Simulated e-mail sending time in milliseconds (default `100`).
+// PREFETCH : int, optional
+//     Messages processed at the same time (default `1`).
+// LOG_FILE : str, optional
+//     Delivery log path (default `./logs/notification_logs.json`).
 //
 // ===========================================================================
 
@@ -82,8 +88,21 @@ const notificationDuration = new client.Histogram({
 // Delivery log
 // ---------------------------------------------------------------------------
 
+// Create the log folder at startup if it does not exist.
 fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
 
+// Record one processed message in the console and in `LOG_FILE`.
+//
+// Parameters
+// ----------
+// entry : object
+//     Log entry: `order_id` (str or null), `email` (str or null),
+//     `status` ("SENT" | "FAILED") and `timestamp` (ISO 8601 str).
+//
+// Notes
+// -----
+// The file is written asynchronously, one JSON object per line. A write error
+// is only printed, it does not stop the message processing.
 function logDelivery(entry) {
   console.log(`[notification] ${JSON.stringify(entry)}`);
   fs.appendFile(LOG_FILE, JSON.stringify(entry) + "\n", (err) => { if (err) console.error("Could not write to the log file:", err.message); });
@@ -93,10 +112,51 @@ function logDelivery(entry) {
 // Message processing
 // ---------------------------------------------------------------------------
 
+// Wait for some time without blocking the event loop.
+//
+// Parameters
+// ----------
+// ms : int
+//     Time to wait, in milliseconds.
+//
+// Returns
+// -------
+// Promise<void>
+//     Resolves after `ms` milliseconds.
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Simulate sending the confirmation e-mail.
+//
+// Returns
+// -------
+// Promise<void>
+//     Resolves after `EMAIL_DELAY_MS` milliseconds.
+//
+// Notes
+// -----
+// No real e-mail is sent; the arguments given by the caller are ignored.
 async function sendEmail() { await sleep(EMAIL_DELAY_MS); }
 
+// Process one "OrderCreated" message taken from the queue.
+//
+// Parameters
+// ----------
+// channel : amqplib.Channel
+//     Channel the message came from, used to acknowledge it.
+// msg : amqplib.Message
+//     Message whose content is the JSON published by the Order service.
+//
+// Returns
+// -------
+// Promise<void>
+//     Resolves once the message is logged and acknowledged.
+//
+// Notes
+// -----
+// The message is `ack`ed when the e-mail is "sent". When it is invalid (bad
+// JSON, no `order_id` or `email`) it is `nack`ed without requeue, so a broken
+// message is not delivered again in a loop. Both cases are logged and counted
+// in `notifications_processed_total{status}`.
 async function handleMessage(channel, msg) {
     const stopTimer = notificationDuration.startTimer();
 
@@ -128,8 +188,15 @@ async function handleMessage(channel, msg) {
 // RabbitMQ
 // ---------------------------------------------------------------------------
 
+// Timer of the next reconnection attempt (null when none is scheduled).
 let reconnectTimer = null;
 
+// Schedule a new RabbitMQ connection attempt after `RABBITMQ_RETRY_MS`.
+//
+// Notes
+// -----
+// Several errors can arrive at the same time (connection and channel). The
+// `reconnectTimer` guard makes sure only one attempt is scheduled.
 function scheduleReconnect() {
   if (reconnectTimer) 
     return;
@@ -137,6 +204,18 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRabbit(); }, RABBITMQ_RETRY_MS);
 }
 
+// Connect to RabbitMQ and start consuming `ORDER_QUEUE`.
+//
+// Returns
+// -------
+// Promise<void>
+//     Resolves once consuming has started, or once a retry has been scheduled.
+//
+// Notes
+// -----
+// The queue is declared durable (same settings as the Order service) and
+// `prefetch(PREFETCH)` limits how many messages are processed at once. Any
+// failure, now or later (closed connection), schedules a new attempt.
 async function connectRabbit() {
   let connection = null;
 
@@ -175,11 +254,19 @@ const app = express();
 // Endpoints
 // ---------------------------------------------------------------------------
 
+// GET /metrics
+//
+// Returns
+// -------
+// 200 : text/plain
+//     All the metrics of this service in Prometheus text format (scraped by
+//     Prometheus).
 app.get("/metrics", async (req, res) => { res.set("Content-Type", register.contentType); res.end(await register.metrics()); });
 
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
 
+// Start the /metrics server on `PORT` and connect to RabbitMQ.
 app.listen(PORT, () => { console.log(`Notification running on port ${PORT} (queue: ${ORDER_QUEUE})`); });
 connectRabbit();

@@ -26,6 +26,26 @@ spec:
               value: http://catalog:8001
             - name: RABBITMQ_URL
               value: amqp://guest:guest@rabbitmq:5672
+            - name: PAYMENT_URL
+              value: http://payment:8004
+            - name: PAYMENT_TIMEOUT_MS
+              value: "1000"
+            - name: PAYMENT_MAX_ATTEMPTS
+              value: "3"
+            - name: PAYMENT_RETRY_BASE_MS
+              value: "100"
+            - name: PAYMENT_RETRY_MAX_MS
+              value: "500"
+            - name: CB_WINDOW_SIZE
+              value: "10"
+            - name: CB_MIN_CALLS
+              value: "5"
+            - name: CB_FAILURE_RATE
+              value: "0.5"
+            - name: CB_OPEN_MS
+              value: "10000"
+            - name: CB_HALF_OPEN_CALLS
+              value: "1"
           readinessProbe:
             httpGet:
               path: /metrics

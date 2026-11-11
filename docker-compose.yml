@@ -16,11 +16,14 @@ services:
     container_name: order
     environment:
       CATALOG_URL: http://catalog:8001
+      PAYMENT_URL: http://payment:8004
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
     ports:
       - "8002:8002"
     depends_on:
       catalog:
+        condition: service_started
+      payment:
         condition: service_started
       rabbitmq:
         condition: service_healthy
@@ -87,7 +90,7 @@ services:
       RATE_LIMIT_MAX: "5"
       RATE_LIMIT_WINDOW_MS: "1000"
     ports:
-      - "8000:8000"
+      - "8080:8000"
     depends_on:
       - catalog
       - order

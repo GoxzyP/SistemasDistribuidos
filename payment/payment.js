@@ -32,9 +32,12 @@
 //
 // Environment Variables
 // ---------------------
-// PORT : optional, port to listen on (default 8004).
-// FAULT_ERROR_RATE : optional, error rate at startup (default 0).
-// FAULT_LATENCY_MS : optional, latency at startup (default 0).
+// PORT : int, optional
+//     Port to listen on (default `8004`).
+// FAULT_ERROR_RATE : float, optional
+//     Probability (0-1) of a simulated HTTP 500 at startup (default `0`).
+// FAULT_LATENCY_MS : int, optional
+//     Latency added to every payment at startup, in milliseconds (default `0`).
 //
 // ===========================================================================
 
@@ -48,18 +51,49 @@ const client = require("prom-client");
 
 const PORT = Number(process.env.PORT) || 8004;
 
+// Highest latency accepted by POST /payments/configure-faults (60 s).
 const MAX_LATENCY_MS = 60000;
 
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
 
+// In-memory store of the service (payment_db), like the Order service.
+//
+// Keys are `order_id` (str) and values are Payment objects:
+//
+// id : str
+//     Unique payment id (UUID).
+// order_id : str
+//     Order that was charged. One payment per order.
+// amount : float
+//     Amount charged, in euros, rounded to 2 decimal places.
+// status : {"SUCCESS", "FAILED"}
+//     Result of the last attempt.
+// processed_at : str
+//     ISO 8601 timestamp of the last attempt.
+//
+// Notes
+// -----
+// Using `order_id` as the key makes POST /payments idempotent. The data is
+// lost when the process restarts.
 const payments = new Map();
 
 // ---------------------------------------------------------------------------
 // Fault injection
 // ---------------------------------------------------------------------------
 
+// Current fault injection settings, changed by POST /payments/configure-faults.
+//
+// error_rate : float
+//     Probability (0-1) that a payment fails with HTTP 500.
+// latency_ms : int
+//     Time each payment waits before being processed, in milliseconds.
+//
+// Notes
+// -----
+// Kept in memory, so it only affects the replica that received the
+// configure-faults request (the Deployment runs a single replica).
 const faults = {
   error_rate: Number(process.env.FAULT_ERROR_RATE) || 0,
   latency_ms: Number(process.env.FAULT_LATENCY_MS) || 0,
@@ -90,8 +124,31 @@ const processingDuration = new client.Histogram({
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Wait for some time without blocking the event loop.
+//
+// Parameters
+// ----------
+// ms : int
+//     Time to wait, in milliseconds.
+//
+// Returns
+// -------
+// Promise<void>
+//     Resolves after `ms` milliseconds.
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Validate the body of POST /payments.
+//
+// Parameters
+// ----------
+// body : object
+//     Request body. Expected fields: `order_id` (non-empty str or int) and
+//     `amount` (number greater than 0).
+//
+// Returns
+// -------
+// string[]
+//     Validation error messages; empty when the body is valid.
 function validatePaymentRequest(body) {
   const errors = [];
 
@@ -106,6 +163,19 @@ function validatePaymentRequest(body) {
   return errors;
 }
 
+// Validate the body of POST /payments/configure-faults.
+//
+// Parameters
+// ----------
+// body : object
+//     Request body. Optional fields: `error_rate` (number between 0 and 1) and
+//     `latency_ms` (integer between 0 and `MAX_LATENCY_MS`). At least one of
+//     them must be present.
+//
+// Returns
+// -------
+// string[]
+//     Validation error messages; empty when the body is valid.
 function validateFaults(body) {
   const errors = [];
 
@@ -121,6 +191,22 @@ function validateFaults(body) {
   return errors;
 }
 
+// Middleware that records the metrics of POST /payments.
+//
+// Parameters
+// ----------
+// req : express.Request
+//     Incoming request.
+// res : express.Response
+//     Outgoing response; the metrics are recorded when it finishes.
+// next : function
+//     Passes control to the payment handler.
+//
+// Notes
+// -----
+// Increments `payment_requests_total{http_status}` and observes
+// `payment_processing_duration_seconds`. It is applied only to this route, so
+// the Prometheus scrapes of /metrics do not affect the numbers.
 function trackPayment(req, res, next) {
   const stopTimer = processingDuration.startTimer();
 
@@ -144,6 +230,35 @@ app.use(express.json());
 // Endpoints
 // ---------------------------------------------------------------------------
 
+// POST /payments
+//
+// Charge an order (simulated external payment provider).
+//
+// Parameters
+// ----------
+// order_id : str or int
+//     Order to charge (request body).
+// amount : float
+//     Amount in euros, greater than 0 (request body).
+//
+// Returns
+// -------
+// 201 : Payment
+//     Payment processed, `status` SUCCESS.
+// 200 : Payment
+//     The order was already charged; the same payment is returned and nothing
+//     is charged again (idempotency).
+// 400 : {"error", "details"}
+//     Invalid body.
+// 409 : {"error", "payment"}
+//     The order was already charged with a different amount.
+// 500 : {"error", "payment"}
+//     Simulated failure (fault injection); the payment is stored as FAILED.
+//
+// Notes
+// -----
+// The injected latency is applied first. A FAILED payment can be retried with
+// the same `order_id` and keeps its `id`; a SUCCESS is never overwritten.
 app.post("/payments", trackPayment, async (req, res) => {
   const body = req.body || {};
   const errors = validatePaymentRequest(body);
@@ -191,6 +306,27 @@ app.post("/payments", trackPayment, async (req, res) => {
   res.status(201).json(payment);
 });
 
+// POST /payments/configure-faults
+//
+// Change the fault injection used to test the Circuit Breaker in Order.
+//
+// Parameters
+// ----------
+// error_rate : float, optional
+//     Probability (0-1) of HTTP 500, e.g. 0.8 = 80% (request body).
+// latency_ms : int, optional
+//     Latency added to each payment, in milliseconds (request body).
+//
+// Returns
+// -------
+// 200 : {"error_rate", "latency_ms"}
+//     The settings now in use.
+// 400 : {"error", "details"}
+//     Invalid values.
+//
+// Examples
+// --------
+// Restore normal behaviour: { "error_rate": 0, "latency_ms": 0 }
 app.post("/payments/configure-faults", (req, res) => {
   const body = req.body || {};
   
@@ -207,14 +343,43 @@ app.post("/payments/configure-faults", (req, res) => {
   res.json(faults);
 });
 
+// GET /metrics
+//
+// Returns
+// -------
+// 200 : text/plain
+//     All the metrics of this service in Prometheus text format (scraped by
+//     Prometheus).
 app.get("/metrics", async (req, res) => { res.set("Content-Type", register.contentType); res.end(await register.metrics()); });
 
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
 
+// Fallback for any route that does not exist.
+//
+// Returns
+// -------
+// 404 : {"error": "Route not found"}
 app.use((req, res) => { res.status(404).json({ error: "Route not found" }); });
 
+// Express error handler (last middleware).
+//
+// Parameters
+// ----------
+// err : Error
+//     Error thrown by a previous handler. `err.status` is set by Express for
+//     client errors, e.g. a body that is not valid JSON.
+// req, res, next : express objects
+//     `next` is unused but must be declared: Express recognises an error
+//     handler by its four parameters.
+//
+// Returns
+// -------
+// 4xx : {"error": "Invalid request body"}
+//     When `err.status` is a client error.
+// 500 : {"error": "Internal server error"}
+//     Any other error (also printed to the console).
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err.status >= 400 && err.status < 500)
@@ -228,4 +393,5 @@ app.use((err, req, res, next) => {
 // Startup
 // ---------------------------------------------------------------------------
 
+// Start the HTTP server on `PORT`.
 app.listen(PORT, () => { console.log(`Payment running on port ${PORT}`); });

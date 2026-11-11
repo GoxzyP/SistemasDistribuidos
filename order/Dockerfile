@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY order.js ./
+COPY order.js circuit-breaker.js ./
 
 EXPOSE 8002
 CMD ["node", "order.js"]

@@ -51,17 +51,17 @@ jobs:
           curl -fsS http://localhost:8000/events > /dev/null
           curl -fsS http://localhost:8000/events/evt-101 > /dev/null
           curl -fsS http://localhost:8000/metrics | grep -q gateway_requests_total
-          # The order service may still be connecting to RabbitMQ: retry until 202
+          # Order may still be starting (Catalog / Payment / RabbitMQ): retry until 201
           status=000
           for i in $(seq 1 30); do
             status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/orders \
               -H "Content-Type: application/json" \
               -d '{"customer_id":"c-1","customer_email":"a@b.pt","event_id":"evt-101","quantity":2}')
             echo "POST /orders -> $status ($i/30)"
-            if [ "$status" = "202" ]; then break; fi
+            if [ "$status" = "201" ]; then break; fi
             sleep 2
           done
-          test "$status" = "202"
+          test "$status" = "201"
 
       - name: Show logs on failure
         if: failure()
