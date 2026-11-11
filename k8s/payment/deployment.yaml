@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment
+  labels:
+    app: payment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment
+  template:
+    metadata:
+      labels:
+        app: payment
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: payment
+          image: ghcr.io/goxzyp/sistemasdistribuidos/payment:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8004
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8004
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8004
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

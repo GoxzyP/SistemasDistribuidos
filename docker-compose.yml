@@ -42,6 +42,14 @@ services:
     networks:
       - ticketmei-net
 
+  payment:
+    build: ./payment
+    container_name: payment
+    ports:
+      - "8004:8004"
+    networks:
+      - ticketmei-net
+
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: rabbitmq

@@ -18,6 +18,10 @@ scrape_configs:
     static_configs:
       - targets: ['notification:8003']
 
+  - job_name: 'payment'
+    static_configs:
+      - targets: ['payment:8004']
+
   - job_name: 'rabbitmq'
     static_configs:
       - targets: ['rabbitmq:15692']

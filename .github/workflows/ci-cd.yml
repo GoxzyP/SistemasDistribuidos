@@ -94,7 +94,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","api-gateway"]' || steps.filter.outputs.changes }}
+      services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","payment","api-gateway"]' || steps.filter.outputs.changes }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +110,8 @@ jobs:
               - 'order/**'
             notification:
               - 'notification/**'
+            payment:
+              - 'payment/**'
             api-gateway:
               - 'api-gateway/**'
 

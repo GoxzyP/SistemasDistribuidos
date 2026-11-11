@@ -15,6 +15,8 @@ resources:
   - order/service.yaml
   - notification/deployment.yaml
   - notification/service.yaml
+  - payment/deployment.yaml
+  - payment/service.yaml
   - api-gateway/deployment.yaml
   - api-gateway/service.yaml
   - redis/deployment.yaml
