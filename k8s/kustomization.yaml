@@ -46,3 +46,4 @@ configMapGenerator:
       - grafana/dashboards/dashboard-gateway-catalog.json
       - grafana/dashboards/dashboard-order-notification.json
       - grafana/dashboards/rabbitmq-overview.json
+      - grafana/dashboards/dashboard-payment-circuit-breaker.json
