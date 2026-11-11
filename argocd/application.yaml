@@ -10,7 +10,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/GoxzyP/SistemasDistribuidos.git
-    targetRevision: parte3 
+    targetRevision: parte4 
     path: k8s                
   destination:
     server: https://kubernetes.default.svc

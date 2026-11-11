@@ -7,13 +7,13 @@ name: CI/CD
 
 on:
   push:
-    branches: [master, parte3]
+    branches: [master, parte3, parte4]
     paths-ignore:
       - "k8s/**"
       - "argocd/**"
       - "**/*.md"
   pull_request:
-    branches: [master, parte3]
+    branches: [master, parte3, parte4]
   workflow_dispatch:
 
 concurrency:

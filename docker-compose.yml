@@ -90,7 +90,7 @@ services:
       RATE_LIMIT_MAX: "5"
       RATE_LIMIT_WINDOW_MS: "1000"
     ports:
-      - "8080:8000"
+      - "8000:8000"
     depends_on:
       - catalog
       - order
