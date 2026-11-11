@@ -17,7 +17,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: payment
-          image: ghcr.io/goxzyp/sistemasdistribuidos/payment:latest
+          image: ghcr.io/goxzyp/sistemasdistribuidos/payment:697c814a33615faaa775cf98115ac4d0b6711880
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8004

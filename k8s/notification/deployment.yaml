@@ -17,7 +17,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: notification
-          image: ghcr.io/goxzyp/sistemasdistribuidos/notification:ffe7686a0a5b972d932b4eed2a4d72814781690a
+          image: ghcr.io/goxzyp/sistemasdistribuidos/notification:697c814a33615faaa775cf98115ac4d0b6711880
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8003
