@@ -15,7 +15,7 @@ Docker Desktop -> Settings -> Kubernetes -> Enable (cluster type: kubeadm), then
 kubectl get nodes
 
 # local images with the tag the manifests use (:dev)
-foreach ($s in "catalog","order","notification","api-gateway") {
+foreach ($s in "catalog","order","notification","payment","inventory","api-gateway") {
   docker build -t ghcr.io/goxzyp/sistemasdistribuidos/${s}:dev ./$s
 }
 
@@ -52,4 +52,23 @@ Argo CD checks Git every ~3 minutes; use **Refresh** in the UI to speed it up.
 
 ```powershell
 docker run --rm -i -v "${PWD}/k6:/scripts" -e BASE_URL=http://host.docker.internal:8000 grafana/k6:0.49.0 run /scripts/rate-limit-test.js
+```
+
+## 4. Saga test (1000 purchases of 20 tickets)
+
+The test calls the services directly (the gateway rate limiter would answer
+429 to almost everything), so open one terminal per port-forward:
+
+```powershell
+kubectl port-forward -n ticketmei svc/order 8002:8002
+kubectl port-forward -n ticketmei svc/inventory 8005:8005
+kubectl port-forward -n ticketmei svc/payment 8004:8004
+```
+
+```powershell
+# every ticket is sold, 980 purchases are rejected for lack of stock
+docker run --rm -i -v "${PWD}/k6:/scripts" -e ORDER_URL=http://host.docker.internal:8002 -e INVENTORY_URL=http://host.docker.internal:8005 -e PAYMENT_URL=http://host.docker.internal:8004 grafana/k6:0.49.0 run /scripts/saga-test.js
+
+# same test with the Payment service failing, so the Saga compensations show up
+docker run --rm -i -v "${PWD}/k6:/scripts" -e MODE=faults -e ORDER_URL=http://host.docker.internal:8002 -e INVENTORY_URL=http://host.docker.internal:8005 -e PAYMENT_URL=http://host.docker.internal:8004 grafana/k6:0.49.0 run /scripts/saga-test.js
 ```

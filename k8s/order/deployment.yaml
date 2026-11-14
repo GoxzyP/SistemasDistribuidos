@@ -28,6 +28,8 @@ spec:
               value: amqp://guest:guest@rabbitmq:5672
             - name: PAYMENT_URL
               value: http://payment:8004
+            - name: INVENTORY_URL
+              value: http://inventory:8005
             - name: PAYMENT_TIMEOUT_MS
               value: "1000"
             - name: PAYMENT_MAX_ATTEMPTS

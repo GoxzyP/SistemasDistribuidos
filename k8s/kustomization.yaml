@@ -17,6 +17,8 @@ resources:
   - notification/service.yaml
   - payment/deployment.yaml
   - payment/service.yaml
+  - inventory/deployment.yaml
+  - inventory/service.yaml
   - api-gateway/deployment.yaml
   - api-gateway/service.yaml
   - redis/deployment.yaml
@@ -47,3 +49,4 @@ configMapGenerator:
       - grafana/dashboards/dashboard-order-notification.json
       - grafana/dashboards/rabbitmq-overview.json
       - grafana/dashboards/dashboard-payment-circuit-breaker.json
+      - grafana/dashboards/dashboard-saga-inventory.json

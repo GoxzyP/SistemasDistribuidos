@@ -17,6 +17,7 @@ services:
     environment:
       CATALOG_URL: http://catalog:8001
       PAYMENT_URL: http://payment:8004
+      INVENTORY_URL: http://inventory:8005
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
     ports:
       - "8002:8002"
@@ -24,6 +25,8 @@ services:
       catalog:
         condition: service_started
       payment:
+        condition: service_started
+      inventory:
         condition: service_started
       rabbitmq:
         condition: service_healthy
@@ -50,6 +53,14 @@ services:
     container_name: payment
     ports:
       - "8004:8004"
+    networks:
+      - ticketmei-net
+
+  inventory:
+    build: ./inventory
+    container_name: inventory
+    ports:
+      - "8005:8005"
     networks:
       - ticketmei-net
 
