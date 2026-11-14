@@ -2,21 +2,32 @@
 // Order service for TicketMEI
 // ===========================================================================
 //
-// Receives ticket purchase requests, charges them in the Payment service
-// (synchronous HTTP call protected by retry with jitter + Circuit Breaker)
-// and, when the payment succeeds, publishes an "OrderCreated" message to the
-// RabbitMQ exchange `orders.exchange` so that the Notification service can
-// send the confirmation e-mail asynchronously.
+// Orchestrator of the checkout Saga. It receives ticket purchase requests and
+// runs three sequential steps:
+//   1. reserve the tickets in the Inventory service (POST /inventory/reserve);
+//   2. charge the customer in the Payment service (POST /payments, a
+//      synchronous HTTP call protected by retry with jitter + Circuit Breaker);
+//   3. confirm the order (status CONFIRMED) and publish an "OrderCreated"
+//      message to the RabbitMQ exchange `orders.exchange` so that the
+//      Notification service can send the confirmation e-mail asynchronously.
+// If the payment fails after the tickets were reserved, the compensating
+// transaction POST /inventory/release gives the tickets back and the order
+// ends FAILED. If there are no tickets left, the Saga stops at step 1 and
+// there is nothing to compensate.
 //
 // Endpoints
 // ---------
 // POST /orders
 //     Create and pay an order. Body (JSON):
 //       { "customer_id": "c-1", "customer_email": "a@b.pt", "event_id": "evt-101", "quantity": 2 }
-//     Responses: 201 (paid, order CONFIRMED), 400 (invalid body),
-//                404 (unknown event), 502/504 (Catalog down/slow),
-//                502/504 (Payment failed/timed out, order FAILED),
-//                503 (Circuit Breaker OPEN, order FAILED).
+//     Responses: 201 (Saga completed, order CONFIRMED), 400 (invalid body),
+//                404 (unknown event), 409 (no tickets left, order FAILED),
+//                502/504 (Catalog or Inventory down/slow),
+//                502/504 (Payment failed/timed out, tickets released, order FAILED),
+//                503 (Circuit Breaker OPEN, tickets released, order FAILED).
+// GET /orders/stats
+//     Counters of the order_db (orders by status, confirmed tickets by event,
+//     compensations), used by the k6 test to check the data consistency.
 // GET /orders/:id
 //     Return a single order, or 404 if it does not exist.
 // GET /metrics
@@ -37,6 +48,15 @@
 // payment_client_requests_total : Counter
 //     Real HTTP requests sent to Payment. Label: `status`
 //     (2xx | <HTTP code> | timeout | error). Not incremented while OPEN.
+// saga_transactions_initiated_total : Counter
+//     Checkout Sagas started (one per order that reaches the Inventory step).
+// saga_transactions_success_total : Counter
+//     Sagas completed (order CONFIRMED).
+// saga_transactions_aborted_total : Counter
+//     Sagas that ended with the order FAILED (initiated = success + aborted).
+// saga_compensations_executed_total : Counter
+//     Compensating transactions (POST /inventory/release) run after a step
+//     failed. Label: `outcome` (success | failed).
 //
 // Environment Variables
 // ---------------------
@@ -77,6 +97,13 @@
 //     Queue bound to the exchange, consumed by Notification (default `order_created`).
 // MAX_TICKETS_PER_ORDER : int, optional
 //     Ticket limit per order (default `4`).
+// INVENTORY_URL : str, optional
+//     Inventory base URL (default `http://inventory:8005`).
+// INVENTORY_TIMEOUT_MS : int, optional
+//     Timeout of each Inventory request in milliseconds (default `2000`).
+// COMPENSATION_MAX_ATTEMPTS : int, optional
+//     Attempts to release the tickets when the Saga is compensated; they use
+//     the same backoff with jitter as the Payment retries (default `5`).
 //
 // ===========================================================================
 
@@ -100,6 +127,10 @@ const PAYMENT_TIMEOUT_MS = Number(process.env.PAYMENT_TIMEOUT_MS) || 1000;
 const PAYMENT_MAX_ATTEMPTS = Number(process.env.PAYMENT_MAX_ATTEMPTS) || 3;
 const PAYMENT_RETRY_BASE_MS = Number(process.env.PAYMENT_RETRY_BASE_MS) || 100;
 const PAYMENT_RETRY_MAX_MS = Number(process.env.PAYMENT_RETRY_MAX_MS) || 500;
+
+const INVENTORY_URL = process.env.INVENTORY_URL || "http://inventory:8005";
+const INVENTORY_TIMEOUT_MS = Number(process.env.INVENTORY_TIMEOUT_MS) || 2000;
+const COMPENSATION_MAX_ATTEMPTS = Number(process.env.COMPENSATION_MAX_ATTEMPTS) || 5;
 
 const CB_WINDOW_SIZE = Number(process.env.CB_WINDOW_SIZE) || 10;
 const CB_MIN_CALLS = Number(process.env.CB_MIN_CALLS) || 5;
@@ -133,9 +164,15 @@ const MAX_TICKETS_PER_ORDER = Number(process.env.MAX_TICKETS_PER_ORDER) || 4;
 // total_amount : float
 //     Price of the event times the quantity, in euros.
 // status : {"PENDING", "CONFIRMED", "FAILED"}
-//     PENDING while the payment runs, then CONFIRMED or FAILED.
+//     PENDING while the Saga runs, then CONFIRMED or FAILED.
 // payment_id : str, optional
 //     Id of the payment, only when CONFIRMED.
+// failure_reason : str, optional
+//     Why the Saga was aborted, only when FAILED: OUT_OF_STOCK, UNKNOWN_EVENT,
+//     INVENTORY_UNAVAILABLE, PAYMENT_FAILED or PAYMENT_UNAVAILABLE.
+// compensation : {"DONE", "FAILED", "NOT_NEEDED"}, optional
+//     Result of the release of the reserved tickets, only when a compensation
+//     was tried. NOT_NEEDED when Inventory had no reservation for the order.
 // created_at : str
 //     ISO 8601 creation timestamp.
 const orders = new Map();
@@ -187,6 +224,35 @@ const paymentClientRequestsTotal = new client.Counter({
   labelNames: ["status"],
   registers: [register],
 });
+
+const sagaInitiatedTotal = new client.Counter({
+  name: "saga_transactions_initiated_total",
+  help: "Checkout Sagas started",
+  registers: [register],
+});
+
+const sagaSuccessTotal = new client.Counter({
+  name: "saga_transactions_success_total",
+  help: "Checkout Sagas completed successfully (order CONFIRMED)",
+  registers: [register],
+});
+
+const sagaAbortedTotal = new client.Counter({
+  name: "saga_transactions_aborted_total",
+  help: "Checkout Sagas aborted (order FAILED)",
+  registers: [register],
+});
+
+const sagaCompensationsTotal = new client.Counter({
+  name: "saga_compensations_executed_total",
+  help: "Compensating transactions (release of the reserved tickets), by outcome",
+  labelNames: ["outcome"],
+  registers: [register],
+});
+
+// Show both outcomes with 0 from the start, so dashboards do not show "no data".
+sagaCompensationsTotal.inc({ outcome: "success" }, 0);
+sagaCompensationsTotal.inc({ outcome: "failed" }, 0);
 
 // ---------------------------------------------------------------------------
 // Payment client: Circuit Breaker + retry with jitter
@@ -389,6 +455,175 @@ async function chargeOrder(order) {
       await sleep(delay);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Inventory client and Saga compensation
+// ---------------------------------------------------------------------------
+
+// Error of one call to the Inventory service.
+//
+// Parameters
+// ----------
+// message : str
+//     Error description.
+// options : object
+//     kind : {"timeout", "network", "http"}
+//         What went wrong.
+//     status : int or null, optional
+//         HTTP status when `kind` is "http" (default null).
+//     code : str or null, optional
+//         Error code sent by Inventory, e.g. `OUT_OF_STOCK` (default null).
+//
+// Attributes
+// ----------
+// kind, status, code : same as the parameters.
+class InventoryError extends Error {
+  constructor(message, { kind, status = null, code = null }) {
+    super(message);
+    this.name = "InventoryError";
+    this.kind = kind;
+    this.status = status;
+    this.code = code;
+  }
+}
+
+// Send a POST request to the Inventory service (one attempt).
+//
+// Parameters
+// ----------
+// path : str
+//     Path to call, e.g. `/inventory/reserve`.
+// body : object
+//     Body sent as JSON.
+//
+// Returns
+// -------
+// Promise<object>
+//     The JSON answer of Inventory (2xx).
+//
+// Raises
+// ------
+// InventoryError
+//     kind "timeout" when there is no answer within `INVENTORY_TIMEOUT_MS`,
+//     kind "network" when Inventory cannot be reached, kind "http" when it
+//     answers with an error status (`status` and `code` are filled in).
+async function postInventory(path, body) {
+  let response;
+
+  try {
+    response = await fetch(`${INVENTORY_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(INVENTORY_TIMEOUT_MS),
+    });
+  }
+  catch (err) {
+    if (err.name === "TimeoutError")
+      throw new InventoryError("Inventory timed out", { kind: "timeout" });
+
+    throw new InventoryError(`Inventory unavailable (${err.message})`, { kind: "network" });
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok)
+    throw new InventoryError(data.error || `Inventory returned HTTP ${response.status}`, { kind: "http", status: response.status, code: data.code || null });
+
+  return data;
+}
+
+// Saga step 1: reserve the tickets of an order in Inventory.
+//
+// Parameters
+// ----------
+// order : object
+//     Order to reserve; uses `order_id`, `event_id` and `quantity`.
+//
+// Returns
+// -------
+// Promise<object>
+//     The reservation.
+//
+// Raises
+// ------
+// InventoryError
+//     With `status` 409 and `code` OUT_OF_STOCK when there are not enough
+//     tickets, `status` 404 when Inventory does not know the event, or
+//     timeout / network / other HTTP errors.
+function reserveStock(order) {
+  return postInventory("/inventory/reserve", { event_id: order.event_id, order_id: order.order_id, quantity: order.quantity });
+}
+
+// Compensating transaction: give the reserved tickets of an order back.
+//
+// Parameters
+// ----------
+// order : object
+//     Order whose reservation is released; `order.compensation` is set to the
+//     result.
+//
+// Returns
+// -------
+// Promise<boolean>
+//     True when the tickets are released (or there was nothing to release),
+//     false when all the attempts failed.
+//
+// Notes
+// -----
+// POST /inventory/release is idempotent, so it is safe to try again. Each try
+// waits an exponential backoff with jitter, like the Payment retries. Every
+// compensation that ran is counted in
+// `saga_compensations_executed_total{outcome}`. If Inventory has no
+// reservation for the order (404), nothing was reserved: it is not counted.
+async function compensateReservation(order) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await postInventory("/inventory/release", { order_id: order.order_id });
+      sagaCompensationsTotal.inc({ outcome: "success" });
+      order.compensation = "DONE";
+      return true;
+    }
+    catch (err) {
+      if (err.status === 404) {
+        order.compensation = "NOT_NEEDED";
+        return true;
+      }
+
+      if (attempt >= COMPENSATION_MAX_ATTEMPTS) {
+        console.error(`Compensation FAILED for order ${order.order_id} after ${attempt} attempts: ${err.message}. Tickets stay reserved.`);
+        sagaCompensationsTotal.inc({ outcome: "failed" });
+        order.compensation = "FAILED";
+        return false;
+      }
+
+      const delay = retryDelay(attempt);
+      console.warn(`Release attempt ${attempt} for order ${order.order_id} failed (${err.message}), retrying in ${Math.round(delay)} ms`);
+      await sleep(delay);
+    }
+  }
+}
+
+// End a Saga with the order FAILED.
+//
+// Parameters
+// ----------
+// order : object
+//     Order of the Saga.
+// reason : str
+//     Value of `order.failure_reason`.
+//
+// Notes
+// -----
+// Called after the compensation (if any) has finished, so `status` only
+// becomes FAILED once the tickets were given back.
+function abortSaga(order, reason) {
+  order.status = "FAILED";
+  order.failure_reason = reason;
+
+  ordersInitiatedTotal.inc({ status: "FAILED" });
+  sagaAbortedTotal.inc();
 }
 
 // ---------------------------------------------------------------------------
@@ -606,7 +841,7 @@ app.use(express.json());
 
 // POST /orders
 //
-// Create an order and pay it through the Circuit Breaker.
+// Create an order and run the checkout Saga (reserve, pay, confirm).
 //
 // Parameters
 // ----------
@@ -622,23 +857,33 @@ app.use(express.json());
 // Returns
 // -------
 // 201 : Order
-//     Paid, order CONFIRMED; OrderCreated was published to `orders.exchange`.
+//     Saga completed, order CONFIRMED; OrderCreated was published to
+//     `orders.exchange`.
 // 400 : {"error", "details"}
 //     Invalid body.
 // 404 | 502 | 504 : {"error"}
 //     Event not found, or Catalog unavailable / timed out.
-// 502 : {"error": "Payment failed", "order"}
-//     Payment kept failing with the circuit CLOSED; order FAILED.
+// 409 : {"error": "Not enough tickets available", "order"}
+//     Step 1 failed: no tickets left. Nothing to compensate; order FAILED.
+// 502 | 504 : {"error", "order"}
+//     Inventory unavailable / timed out (step 1), or Payment kept failing /
+//     timing out with the circuit CLOSED (step 2). The tickets are released
+//     and the order is FAILED.
 // 503 : {"error": "Payment system unavailable, try again later"}
-//     Fallback: the circuit is OPEN, Payment was not called; order FAILED.
-// 504 : {"error": "Payment timed out", "order"}
-//     Payment kept timing out with the circuit CLOSED; order FAILED.
+//     Fallback: the circuit is OPEN, Payment was not called; the tickets are
+//     released and the order is FAILED.
 //
 // Notes
 // -----
-// The order is stored as PENDING before the payment. If publishing to
-// RabbitMQ fails after the payment, the order stays CONFIRMED (the ticket is
-// paid) and the error is only logged.
+// The order is stored as PENDING before the Saga starts. When step 2 fails,
+// the compensation (POST /inventory/release) runs BEFORE the answer is sent,
+// so the latency of a compensated Saga includes it. If publishing to RabbitMQ
+// fails after the payment, the order stays CONFIRMED (the ticket is paid) and
+// the error is only logged.
+//
+// Known limitation: if the Order service gives up on a payment (timeout) that
+// Payment finishes later, that charge is not refunded (Payment has no refund
+// endpoint); the stock stays consistent, the money does not.
 app.post("/orders", async (req, res) => {
     const body = req.body || {};
 
@@ -667,31 +912,63 @@ app.post("/orders", async (req, res) => {
     };
 
     orders.set(order.order_id, order);
+    sagaInitiatedTotal.inc();
 
+    // Step 1: reserve the tickets in Inventory.
+    try {
+        await reserveStock(order);
+    }
+    catch (err) {
+        // No tickets left, or unknown event: nothing was reserved, nothing to compensate.
+        if (err.status === 409 && err.code === "OUT_OF_STOCK") {
+            abortSaga(order, "OUT_OF_STOCK");
+            return res.status(409).json({ error: "Not enough tickets available", order });
+        }
+
+        if (err.status === 404) {
+            abortSaga(order, "UNKNOWN_EVENT");
+            return res.status(404).json({ error: "Event not found in Inventory" });
+        }
+
+        // Timeout or error: Inventory may have reserved the tickets without answering, so release them to be safe.
+        console.error(`Inventory reserve failed for order ${order.order_id}:`, err.message);
+
+        await compensateReservation(order);
+        abortSaga(order, "INVENTORY_UNAVAILABLE");
+
+        const timedOut = err.kind === "timeout";
+        return res.status(timedOut ? 504 : 502).json({ error: timedOut ? "Inventory timed out" : "Inventory unavailable", order });
+    }
+
+    // Step 2: charge the customer (retry with jitter + Circuit Breaker).
     let payment;
 
     try {
         payment = await chargeOrder(order);
     }
     catch (err) {
-        order.status = "FAILED";
-        ordersInitiatedTotal.inc({ status: "FAILED" });
+        // Compensating transaction: give the reserved tickets back.
+        await compensateReservation(order);
 
         // Fallback: circuit OPEN, Payment was not called (fail-fast).
         if (err instanceof CircuitOpenError) {
+            abortSaga(order, "PAYMENT_UNAVAILABLE");
             breakerFallbacksTotal.inc();
             return res.status(503).json({ error: "Payment system unavailable, try again later" });
         }
 
+        abortSaga(order, "PAYMENT_FAILED");
         console.error(`Payment failed for order ${order.order_id}:`, err.message);
 
         const timedOut = err.kind === "timeout";
         return res.status(timedOut ? 504 : 502).json({ error: timedOut ? "Payment timed out" : "Payment failed", order });
     }
 
+    // Step 3: confirm the order.
     order.status = "CONFIRMED";
     order.payment_id = payment.id;
     ordersInitiatedTotal.inc({ status: "CONFIRMED" });
+    sagaSuccessTotal.inc();
 
     try {
         await publishOrderCreated({ type: "OrderCreated", order_id: order.order_id, email: body.customer_email });
@@ -701,6 +978,53 @@ app.post("/orders", async (req, res) => {
     }
 
     res.status(201).json(order);
+});
+
+// GET /orders/stats
+//
+// Counters of the order_db, to check the data consistency after a load test
+// (compare them with `GET /payments/stats` and `GET /inventory/:event_id`).
+//
+// Returns
+// -------
+// 200 : object
+//     total : int
+//         Orders stored.
+//     by_status : {"PENDING", "CONFIRMED", "FAILED"} -> int
+//         Orders by status.
+//     confirmed_tickets_by_event : object
+//         `{ event_id: tickets }` of the CONFIRMED orders.
+//     confirmed_amount : float
+//         Sum of `total_amount` of the CONFIRMED orders, in euros.
+//     compensation : {"DONE", "FAILED", "NOT_NEEDED"} -> int
+//         Orders by result of the compensation.
+//
+// Notes
+// -----
+// Declared before `GET /orders/:id`, otherwise "stats" would be taken as an id.
+app.get("/orders/stats", (req, res) => {
+  const stats = {
+    total: orders.size,
+    by_status: { PENDING: 0, CONFIRMED: 0, FAILED: 0 },
+    confirmed_tickets_by_event: {},
+    confirmed_amount: 0,
+    compensation: { DONE: 0, FAILED: 0, NOT_NEEDED: 0 },
+  };
+
+  for (const order of orders.values()) {
+    stats.by_status[order.status]++;
+
+    if (order.status === "CONFIRMED") {
+      stats.confirmed_tickets_by_event[order.event_id] = (stats.confirmed_tickets_by_event[order.event_id] || 0) + order.quantity;
+      stats.confirmed_amount += order.total_amount;
+    }
+
+    if (order.compensation)
+      stats.compensation[order.compensation]++;
+  }
+
+  stats.confirmed_amount = Math.round(stats.confirmed_amount * 100) / 100;
+  res.json(stats);
 });
 
 // GET /orders/:id

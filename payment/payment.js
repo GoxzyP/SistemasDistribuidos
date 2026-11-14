@@ -20,6 +20,9 @@
 //       { "error_rate": 0.5, "latency_ms": 10000 }
 //     error_rate is a probability between 0 and 1 (0.5 = 50% of HTTP 500).
 //     Send { "error_rate": 0, "latency_ms": 0 } to restore normal behaviour.
+// GET /payments/stats
+//     Counters of the payment_db (payments by status and the amount charged),
+//     used by the k6 Saga test to check the data consistency.
 // GET /metrics
 //     Return metrics in Prometheus text format.
 //
@@ -341,6 +344,34 @@ app.post("/payments/configure-faults", (req, res) => {
   console.log(`Faults updated: error_rate=${faults.error_rate}, latency_ms=${faults.latency_ms}`);
 
   res.json(faults);
+});
+
+// GET /payments/stats
+//
+// Counters of the payment_db, to check the data consistency after a load test
+// (compare them with `GET /orders/stats`).
+//
+// Returns
+// -------
+// 200 : object
+//     total : int
+//         Payments stored (one per order).
+//     by_status : {"SUCCESS", "FAILED"} -> int
+//         Payments by their current status.
+//     success_amount : float
+//         Sum of `amount` of the SUCCESS payments, in euros.
+app.get("/payments/stats", (req, res) => {
+  const stats = { total: payments.size, by_status: { SUCCESS: 0, FAILED: 0 }, success_amount: 0 };
+
+  for (const payment of payments.values()) {
+    stats.by_status[payment.status]++;
+
+    if (payment.status === "SUCCESS")
+      stats.success_amount += payment.amount;
+  }
+
+  stats.success_amount = Math.round(stats.success_amount * 100) / 100;
+  res.json(stats);
 });
 
 // GET /metrics
