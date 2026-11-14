@@ -7,13 +7,13 @@ name: CI/CD
 
 on:
   push:
-    branches: [master, parte3, parte4]
+    branches: [master, parte3, parte4, parte5]
     paths-ignore:
       - "k8s/**"
       - "argocd/**"
       - "**/*.md"
   pull_request:
-    branches: [master, parte3, parte4]
+    branches: [master, parte3, parte4, parte5]
   workflow_dispatch:
 
 concurrency:
@@ -63,9 +63,27 @@ jobs:
           done
           test "$status" = "201"
 
+      - name: Saga smoke test (reserve, compensation data, stock)
+        run: |
+          curl -fsS http://localhost:8005/inventory/evt-101 > /dev/null
+          curl -fsS http://localhost:8002/metrics | grep -q saga_transactions_success_total
+          # Stock of 1 ticket: buying 2 gets 409, buying 1 gets 201 and empties the stock, the next purchase gets 409
+          curl -fsS -X POST http://localhost:8005/inventory/stock \
+            -H "Content-Type: application/json" \
+            -d '{"event_id":"evt-104","total_tickets":1}' > /dev/null
+          buy() {
+            curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8002/orders \
+              -H "Content-Type: application/json" \
+              -d "{\"customer_id\":\"c-1\",\"customer_email\":\"a@b.pt\",\"event_id\":\"evt-104\",\"quantity\":$1}"
+          }
+          test "$(buy 2)" = "409"
+          test "$(buy 1)" = "201"
+          test "$(buy 1)" = "409"
+          curl -fsS http://localhost:8005/inventory/evt-104 | grep -q '"available_tickets":0'
+
       - name: Show logs on failure
         if: failure()
-        run: docker compose logs --tail=50 api-gateway order rabbitmq
+        run: docker compose logs --tail=50 api-gateway order inventory rabbitmq
 
       - name: Short k6 run (smoke, thresholds disabled)
         run: docker compose --profile testing run --rm k6 run --vus 5 --duration 15s --no-thresholds load-test.js
@@ -94,7 +112,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","payment","api-gateway"]' || steps.filter.outputs.changes }}
+      services: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-all]')) && '["catalog","order","notification","payment","inventory","api-gateway"]' || steps.filter.outputs.changes }}
     steps:
       - uses: actions/checkout@v4
 
@@ -112,6 +130,8 @@ jobs:
               - 'notification/**'
             payment:
               - 'payment/**'
+            inventory:
+              - 'inventory/**'
             api-gateway:
               - 'api-gateway/**'
 
