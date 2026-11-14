@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  labels:
+    app: inventory
+spec:
+  # One replica: the stock lives in memory, so a second replica would have its own stock.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: inventory
+          image: ghcr.io/goxzyp/sistemasdistribuidos/inventory:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8005
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8005
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

@@ -1,0 +1,14 @@
+{
+  "name": "inventory",
+  "version": "1.0.0",
+  "description": "Inventory service for TicketMEI: ticket stock with reservations, releases (Saga compensation) and Prometheus metrics",
+  "main": "inventory.js",
+  "scripts": {
+    "start": "node inventory.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.3.0",
+    "prom-client": "^15.1.3"
+  }
+}
