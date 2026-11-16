@@ -6,6 +6,7 @@
 #   kubectl -n grupo01 logs -f job/k6-saga
 #   kubectl -n grupo01 delete job k6-saga       # before running it again
 #
+# The namespace quota caps the sum of CPU limits at 1500m (the 7 services use 1150m), hence the small k6 limit.
 # For the "faults" run add  - name: MODE / value: faults  to env below.
 apiVersion: batch/v1
 kind: Job
@@ -43,9 +44,10 @@ spec:
               mountPath: /scripts
           resources:
             requests:
-              cpu: 500m
+              cpu: 200m
               memory: 512Mi
             limits:
+              cpu: 350m
               memory: 1Gi
       volumes:
         - name: script
