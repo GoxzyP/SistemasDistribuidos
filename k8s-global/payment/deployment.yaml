@@ -31,7 +31,7 @@ spec:
       containers:
         - name: payment
           # The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/payment:697c814a33615faaa775cf98115ac4d0b6711880
+          image: ghcr.io/goxzyp/sistemasdistribuidos/payment:680cbbe70434b735353dad8c7f261da7b0273760
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8004
