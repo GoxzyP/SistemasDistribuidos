@@ -1,0 +1,101 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api-gateway-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalog-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: catalog
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: order-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: order
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: notification-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: notification
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: payment-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: payment
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: inventory-monitor
+  labels:
+    release: kube-prometheus-stack-prometheus   # must match the Prometheus operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: inventory
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # 15s instead of the template's 60s: the dashboards use rate(...[30s]) and rate(...[1m]),
+      # which need at least 2 samples inside the window.
+      interval: 15s

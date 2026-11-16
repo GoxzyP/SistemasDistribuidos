@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+  labels:
+    app: order
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order
+  template:
+    metadata:
+      labels:
+        app: order
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: order
+          # The tag is updated automatically by the CI/CD pipeline (Git SHA).
+          image: ghcr.io/goxzyp/sistemasdistribuidos/order:697c814a33615faaa775cf98115ac4d0b6711880
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8002
+          env:
+            - name: CATALOG_URL
+              value: http://catalog:8001
+            - name: PAYMENT_URL
+              value: http://payment:8004
+            - name: INVENTORY_URL
+              value: http://inventory:8005
+            - name: PAYMENT_TIMEOUT_MS
+              value: "1000"
+            - name: PAYMENT_MAX_ATTEMPTS
+              value: "3"
+            - name: PAYMENT_RETRY_BASE_MS
+              value: "100"
+            - name: PAYMENT_RETRY_MAX_MS
+              value: "500"
+            - name: CB_WINDOW_SIZE
+              value: "10"
+            - name: CB_MIN_CALLS
+              value: "5"
+            - name: CB_FAILURE_RATE
+              value: "0.5"
+            - name: CB_OPEN_MS
+              value: "10000"
+            - name: CB_HALF_OPEN_CALLS
+              value: "1"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grupo01-user-user-credentials
+                  key: username
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grupo01-user-user-credentials
+                  key: password
+            # $(VAR) is expanded by Kubernetes, so these two must come first.
+            # The vhost "/grupo01" is URL-encoded as %2Fgrupo01.
+            - name: RABBITMQ_URL
+              value: amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.rabbitmq-system.svc.cluster.local:5672/%2Fgrupo01
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8002
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8002
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

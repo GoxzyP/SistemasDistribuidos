@@ -1,0 +1,53 @@
+# NOT part of the kustomization (Argo CD ignores it). Runs the Saga k6 test INSIDE the namespace,
+# talking directly to Order / Inventory / Payment (the Gateway rate limiter would block 1000 VUs).
+#
+#   kubectl -n grupo01 create configmap k6-saga-script --from-file=saga-test.js=k6/saga-test.js
+#   kubectl -n grupo01 apply -f k8s-global/extras/k6-saga-job.yaml
+#   kubectl -n grupo01 logs -f job/k6-saga
+#   kubectl -n grupo01 delete job k6-saga       # before running it again
+#
+# For the "faults" run add  - name: MODE / value: faults  to env below.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-saga
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        runAsGroup: 12345
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          args: ["run", "/scripts/saga-test.js"]
+          env:
+            - name: ORDER_URL
+              value: http://order:8002
+            - name: INVENTORY_URL
+              value: http://inventory:8005
+            - name: PAYMENT_URL
+              value: http://payment:8004
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: script
+          configMap:
+            name: k6-saga-script

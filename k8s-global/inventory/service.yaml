@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+  labels:
+    app: inventory
+spec:
+  type: ClusterIP
+  selector:
+    app: inventory
+  ports:
+    # Named "metrics" because the ServiceMonitor selects the port by name.
+    - name: metrics
+      port: 8005
+      targetPort: 8005
