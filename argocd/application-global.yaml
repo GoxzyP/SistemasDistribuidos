@@ -1,0 +1,23 @@
+# Global (UMa) cluster. Created from the Argo CD web UI (http://argocd.10.2.15.161.nip.io):
+# New App -> "Edit as YAML" -> paste this file. The AppProject and the namespace already exist.
+# The local cluster keeps using argocd/application.yaml (path: k8s).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ticketmei-grupo01
+  namespace: argocd
+spec:
+  project: grupo01
+  source:
+    repoURL: https://github.com/GoxzyP/SistemasDistribuidos.git
+    targetRevision: parte5
+    path: k8s-global
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grupo01
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
