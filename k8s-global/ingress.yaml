@@ -3,8 +3,7 @@ kind: Ingress
 metadata:
   name: ticketmei
 spec:
-  # Confirm the class with `kubectl get ingressclass` (or ask the teacher).
-  ingressClassName: nginx
+  ingressClassName: traefik
   rules:
     - host: ticketmei-grupo01.10.2.15.161.nip.io
       http:
