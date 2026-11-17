@@ -55,3 +55,34 @@ spec:
     - ports:
         - protocol: TCP
           port: 8000
+---
+# 4. Egress: the namespace may deny outgoing traffic by default. Allow DNS, our own
+#    services (Gateway -> Catalog / Order, Order -> Inventory / Payment ...) and the
+#    cluster RabbitMQ. Nothing else is needed (images are pulled by the node, not by the pod).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rabbitmq-system
+      ports:
+        - protocol: TCP
+          port: 5672
