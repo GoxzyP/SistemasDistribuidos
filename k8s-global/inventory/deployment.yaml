@@ -31,7 +31,7 @@ spec:
       containers:
         - name: inventory
           # The tag is updated automatically by the CI/CD pipeline (Git SHA).
-          image: ghcr.io/goxzyp/sistemasdistribuidos/inventory:dev
+          image: ghcr.io/goxzyp/sistemasdistribuidos/inventory:680cbbe70434b735353dad8c7f261da7b0273760
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8005
