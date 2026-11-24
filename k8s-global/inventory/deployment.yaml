@@ -37,7 +37,7 @@ spec:
             - containerPort: 8005
           env:
             - name: INITIAL_STOCK
-              value: '{"evt-101":60000,"evt-102":50000,"evt-103":55000,"evt-104":1}'
+              value: '{"evt-101":60000,"evt-102":50000,"evt-103":55000,"evt-104":3}'
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
